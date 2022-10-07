@@ -137,7 +137,14 @@ inline cublasOperation_t trans_mode_kk_to_cublas(const char kkMode[]) {
 #endif  // KOKKOSKERNELS_ENABLE_TPL_CUBLAS
 
 #ifdef KOKKOSKERNELS_ENABLE_TPL_ROCBLAS
+#ifndef HIP_VERSION_MAJOR
+#error "Missing HIP Version definition!"
+#endif
+#if (HIP_VERSION_MAJOR < 5) || (HIP_VERSION_MAJOR == 5 && HIP_VERSION_MINOR < 2)
 #include <rocblas.h>
+#else
+#include <rocblas/rocblas.h>
+#endif
 
 namespace KokkosBlas {
 namespace Impl {

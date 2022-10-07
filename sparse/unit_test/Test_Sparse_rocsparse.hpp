@@ -1,12 +1,11 @@
 // Note: Luc Berger-Vergiat 10/25/21
 //       Only include this test if compiling
-//       the cuda sparse tests and cuSPARSE
+//       the rocsparse tests and rocSPARSE
 //       is enabled.
 #if defined(TEST_HIP_SPARSE_CPP) && defined(KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE)
 
 #include <gtest/gtest.h>
 #include <Kokkos_Core.hpp>
-#include <rocsparse.h>
 #include "KokkosSparse_Utils_rocsparse.hpp"
 
 void test_rocsparse_version() {
@@ -53,8 +52,30 @@ void test_rocsparse_singleton() {
       KokkosKernels::Impl::RocsparseSingleton::singleton();
 }
 
+void
+test_rocsparse_descriptors()
+{
+  // This call just tests types for the descriptor
+  EXPECT_TRUE((rocsparse_check_valid_spmv_types<float,int,int>()));
+  EXPECT_TRUE((rocsparse_check_valid_spmv_types<float,int,int64_t>()));
+  EXPECT_TRUE((rocsparse_check_valid_spmv_types<float,int64_t,int>()));
+  EXPECT_TRUE((rocsparse_check_valid_spmv_types<float,int64_t,int64_t>()));
+
+  EXPECT_TRUE((rocsparse_check_valid_spmv_types<double,int,int>()));
+  EXPECT_TRUE((rocsparse_check_valid_spmv_types<double,int,int64_t>()));
+  EXPECT_TRUE((rocsparse_check_valid_spmv_types<double,int64_t,int>()));
+  EXPECT_TRUE((rocsparse_check_valid_spmv_types<double,int64_t,int64_t>()));
+
+  // Complex datatypes do not translate to the rocpsarse complex datatype
+  EXPECT_FALSE((rocsparse_check_valid_spmv_types<Kokkos::complex<float>,int,int>()));
+  EXPECT_FALSE((rocsparse_check_valid_spmv_types<Kokkos::complex<double>,int,int>()));
+  EXPECT_FALSE((rocsparse_check_valid_spmv_types<float,int,size_t>()));
+  EXPECT_FALSE((rocsparse_check_valid_spmv_types<float,size_t,int>()));
+}
+
 TEST_F(TestCategory, sparse_rocsparse_version) { test_rocsparse_version(); }
 TEST_F(TestCategory, sparse_rocsparse_safe_call) { test_rocsparse_safe_call(); }
 TEST_F(TestCategory, sparse_rocsparse_singleton) { test_rocsparse_singleton(); }
+TEST_F(TestCategory, sparse_rocsparse_descriptors) { test_rocsparse_descriptors(); }
 
 #endif  // check for HIP and rocSPARSE

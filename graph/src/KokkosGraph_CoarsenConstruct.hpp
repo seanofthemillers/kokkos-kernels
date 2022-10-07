@@ -1455,7 +1455,7 @@ class coarse_builder {
             edge_offset_t start_dest   = source_offsets(u);
             Kokkos::parallel_for(
                 Kokkos::TeamThreadRange(thread, edges_per_source(u)),
-                [=](const ordinal_t idx) {
+                [&](const ordinal_t idx) {
                   dest_idx(start_dest + idx) =
                       dest_by_source(start_origin + idx);
                   wgts(start_dest + idx) = wgt_by_source(start_origin + idx);
@@ -1486,7 +1486,7 @@ class coarse_builder {
           edge_offset_t start = source_row_map(u);
           edge_offset_t end   = start + source_edge_counts(u);
           Kokkos::parallel_for(Kokkos::TeamThreadRange(thread, start, end),
-                               [=](const edge_offset_t idx) {
+                               [&](const edge_offset_t idx) {
                                  ordinal_t v = source_destinations(idx);
                                  // increment other vertex
                                  Kokkos::atomic_fetch_add(&coarse_degree(v), 1);
@@ -1542,7 +1542,7 @@ class coarse_builder {
           ordinal_t nonLoopEdgesTotal = 0;
           Kokkos::parallel_reduce(
               Kokkos::TeamThreadRange(thread, start, end),
-              [=](const edge_offset_t idx, ordinal_t& local_sum) {
+              [&](const edge_offset_t idx, ordinal_t& local_sum) {
                 ordinal_t v       = mapped_edges(idx);
                 bool degree_less  = degree_initial(u) < degree_initial(v);
                 bool degree_equal = degree_initial(u) == degree_initial(v);
@@ -1551,7 +1551,7 @@ class coarse_builder {
                 }
               },
               nonLoopEdgesTotal);
-          Kokkos::single(Kokkos::PerTeam(thread), [=]() {
+          Kokkos::single(Kokkos::PerTeam(thread), [&]() {
             Kokkos::atomic_add(&edges_per_source(u), nonLoopEdgesTotal);
           });
         });
@@ -1576,7 +1576,7 @@ class coarse_builder {
           edge_offset_t end   = g.graph.row_map(outer_idx + 1);
           Kokkos::parallel_for(
               Kokkos::TeamThreadRange(thread, start, end),
-              [=](const edge_offset_t idx) {
+              [&](const edge_offset_t idx) {
                 ordinal_t v       = mapped_edges(idx);
                 bool degree_less  = degree_initial(u) < degree_initial(v);
                 bool degree_equal = degree_initial(u) == degree_initial(v);
@@ -1635,7 +1635,7 @@ class coarse_builder {
           ordinal_t nonLoopEdgesTotal = 0;
           Kokkos::parallel_reduce(
               Kokkos::TeamThreadRange(thread, start, end),
-              [=](const edge_offset_t idx, ordinal_t& local_sum) {
+              [&](const edge_offset_t idx, ordinal_t& local_sum) {
                 ordinal_t v       = mapped_edges(idx);
                 bool degree_less  = degree_initial(u) < degree_initial(v);
                 bool degree_equal = degree_initial(u) == degree_initial(v);
@@ -1644,7 +1644,7 @@ class coarse_builder {
                 }
               },
               nonLoopEdgesTotal);
-          Kokkos::single(Kokkos::PerTeam(thread), [=]() {
+          Kokkos::single(Kokkos::PerTeam(thread), [&]() {
             dedupe_count(outer_idx) = nonLoopEdgesTotal;
           });
         });
@@ -1671,7 +1671,7 @@ class coarse_builder {
           edge_offset_t end   = g.graph.row_map(outer_idx + 1);
           Kokkos::parallel_for(
               Kokkos::TeamThreadRange(thread, start, end),
-              [=](const edge_offset_t idx) {
+              [&](const edge_offset_t idx) {
                 ordinal_t v       = mapped_edges(idx);
                 bool degree_less  = degree_initial(u) < degree_initial(v);
                 bool degree_equal = degree_initial(u) == degree_initial(v);
@@ -1715,7 +1715,7 @@ class coarse_builder {
           edge_offset_t end   = start + dedupe_count(outer_idx);
           Kokkos::parallel_for(
               Kokkos::TeamThreadRange(thread, start, end),
-              [=](const edge_offset_t idx) {
+              [&](const edge_offset_t idx) {
                 ordinal_t v       = dest_fine(idx);
                 bool degree_less  = degree_initial(u) < degree_initial(v);
                 bool degree_equal = degree_initial(u) == degree_initial(v);

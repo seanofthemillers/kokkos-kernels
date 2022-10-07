@@ -191,9 +191,10 @@ void spmv(KokkosKernels::Experimental::Controls controls, const char mode[],
 #endif
 
 #ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+  // rocSPARSE does not support (C)
   if (std::is_same<typename AMatrix_Internal::memory_space,
                    Kokkos::Experimental::HIPSpace>::value) {
-    useFallback = useFallback || (mode[0] != NoTranspose[0]);
+    useFallback = useFallback || (mode[0] == Conjugate[0]);
   }
 #endif
 

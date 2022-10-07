@@ -370,7 +370,6 @@ KOKKOSSPARSE_SPMV_CUSPARSE(Kokkos::complex<float>, int64_t, size_t,
 
 // rocSPARSE
 #if defined(KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE)
-#include <rocsparse.h>
 #include "KokkosSparse_Utils_rocsparse.hpp"
 
 namespace KokkosSparse {
@@ -400,68 +399,95 @@ void spmv_rocsparse(const KokkosKernels::Experimental::Controls& controls,
   /* Set the scalar type */
   rocsparse_datatype compute_type = rocsparse_compute_type<value_type>();
 
-  /* Create the rocsparse mat and csr descr */
-  rocsparse_mat_descr Amat;
-  KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_create_mat_descr(&Amat));
+  // We have the option to pass in the rocsparse descriptor from the input matrix A
+  bool own_Aspmat_descr = true;
   rocsparse_spmat_descr Aspmat;
-  // We need to do some casting to void*
-  // Note that row_map is always a const view so const_cast is necessary,
-  // however entries and values may not be const so we need to check first.
-  void* csr_row_ptr =
-      static_cast<void*>(const_cast<offset_type*>(A.graph.row_map.data()));
-  void* csr_col_ind =
-      static_cast<void*>(const_cast<entry_type*>(A.graph.entries.data()));
-  void* csr_val = static_cast<void*>(const_cast<value_type*>(A.values.data()));
+  if(A.rocsparse_descr){
+    Aspmat = (myRocsparseOperation == rocsparse_operation_none) ? A.rocsparse_descr->descriptor : A.rocsparse_descr->transpose_descriptor;
+    if(Aspmat != 0)
+      own_Aspmat_descr = false;
+  }
 
-  KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_create_csr_descr(
-      &Aspmat, A.numRows(), A.numCols(), A.nnz(), csr_row_ptr, csr_col_ind,
-      csr_val, offset_index_type, entry_index_type, rocsparse_index_base_zero,
-      compute_type));
+  // If a valid descriptor was not passed in, create a new one
+  if(own_Aspmat_descr){
+    // We need to do some casting to void*
+    // Note that row_map is always a const view so const_cast is necessary,
+    // however entries and values may not be const so we need to check first.
+    void* csr_row_ptr =
+        static_cast<void*>(const_cast<offset_type*>(A.graph.row_map.data()));
+    void* csr_col_ind =
+        static_cast<void*>(const_cast<entry_type*>(A.graph.entries.data()));
+    void* csr_val = static_cast<void*>(const_cast<value_type*>(A.values.data()));
+
+    KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_create_csr_descr(
+        &Aspmat, A.numRows(), A.numCols(), A.nnz(), csr_row_ptr, csr_col_ind,
+        csr_val, offset_index_type, entry_index_type, rocsparse_index_base_zero,
+        compute_type));
+
+  }
 
   /* Create rocsparse dense vectors for X and Y */
-  rocsparse_dnvec_descr vecX, vecY;
-  void* x_data = static_cast<void*>(
-      const_cast<typename XVector::non_const_value_type*>(x.data()));
-  void* y_data = static_cast<void*>(
-      const_cast<typename YVector::non_const_value_type*>(y.data()));
-  KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_create_dnvec_descr(
-      &vecX, x.extent_int(0), x_data,
-      rocsparse_compute_type<typename XVector::non_const_value_type>()));
-  KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_create_dnvec_descr(
-      &vecY, y.extent_int(0), y_data,
-      rocsparse_compute_type<typename YVector::non_const_value_type>()));
+  rocsparse_dnvec_descr vecX;
+  {
+    void* x_data = static_cast<void*>(
+        const_cast<typename XVector::non_const_value_type*>(x.data()));
+    KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_create_dnvec_descr(
+        &vecX, x.extent_int(0), x_data,
+        rocsparse_compute_type<typename XVector::non_const_value_type>()));
+  }
 
-  /* Actually perform the SpMV operation, first size buffer, then compute result
-   */
-  size_t buffer_size     = 0;
-  void* tmp_buffer       = nullptr;
-  rocsparse_spmv_alg alg = rocsparse_spmv_alg_default;
-  // Note, Dec 6th 2021 - lbv:
-  // rocSPARSE offers two diffrent algorithms for spmv
-  // 1. ocsparse_spmv_alg_csr_adaptive
-  // 2. rocsparse_spmv_alg_csr_stream
-  // it is unclear which one is the default algorithm
-  // or what both algorithms are intended for?
+  rocsparse_dnvec_descr vecY;
+  {
+    void* y_data = static_cast<void*>(
+        const_cast<typename YVector::non_const_value_type*>(y.data()));
+    KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_create_dnvec_descr(
+        &vecY, y.extent_int(0), y_data,
+        rocsparse_compute_type<typename YVector::non_const_value_type>()));
+  }
+
+  // (9/27/2022) rocSPARSE currently offers two algorithms
+  // adaptive: Adaptive kernel, must run a serial-CPU scan, so initial call is very slow.
+  //           Use this kernel if you are going to call SPMV with this matrix dozens of times.
+  //           Note: The results of the CPU scan is stored in the matrix descriptor (Aspmat)
+  //           so we need to keep the descriptor alive over time.
+  // stream:   More straightforward kernel that doesn't scan the sparsity pattern.
+  //           This approach is better for when you only need to run SPMV once or twice.
+  //           This call can be 20%-40% slower than the adaptive scheme.
+  // default:  Adaptive kernel.
+  
+  // We set the default operation to the stream kernel since it is faster for small numbers of operations.
+  rocsparse_spmv_alg alg = rocsparse_spmv_alg_csr_stream;
   if (controls.isParameter("algorithm")) {
     const std::string algName = controls.getParameter("algorithm");
     if (algName == "default")
-      alg = rocsparse_spmv_alg_default;
-    else if (algName == "merge")
+      alg = rocsparse_spmv_alg_csr_stream;
+    else if (algName == "adaptive")
+      alg = rocsparse_spmv_alg_csr_adaptive;
+    else if (algName == "stream")
       alg = rocsparse_spmv_alg_csr_stream;
   }
+
+  // Generate the tmp buffer
+  size_t buffer_size     = 0;
+  void* tmp_buffer       = nullptr;
   KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(
       rocsparse_spmv(handle, myRocsparseOperation, &alpha, Aspmat, vecX, &beta,
                      vecY, compute_type, alg, &buffer_size, tmp_buffer));
   KOKKOS_IMPL_HIP_SAFE_CALL(hipMalloc(&tmp_buffer, buffer_size));
+
+  // Run the SpMV call
   KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(
       rocsparse_spmv(handle, myRocsparseOperation, &alpha, Aspmat, vecX, &beta,
                      vecY, compute_type, alg, &buffer_size, tmp_buffer));
   KOKKOS_IMPL_HIP_SAFE_CALL(hipFree(tmp_buffer));
 
+  // Cleanup
   KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_destroy_dnvec_descr(vecY));
   KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_destroy_dnvec_descr(vecX));
-  KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_destroy_spmat_descr(Aspmat));
-  KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_destroy_mat_descr(Amat));
+
+  if(own_Aspmat_descr){
+    KOKKOS_ROCSPARSE_SAFE_CALL_IMPL(rocsparse_destroy_spmat_descr(Aspmat));
+  }
 }
 
 #define KOKKOSSPARSE_SPMV_ROCSPARSE(SCALAR, LAYOUT, COMPILE_LIBRARY)          \

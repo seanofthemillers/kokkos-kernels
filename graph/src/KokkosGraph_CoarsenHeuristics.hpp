@@ -695,7 +695,7 @@ class coarsen_heuristics {
                                       Device>::value_type argmax{};
               Kokkos::parallel_reduce(
                   Kokkos::TeamThreadRange(thread, g.graph.row_map(i), end),
-                  [=](const edge_offset_t idx,
+                  [&](const edge_offset_t idx,
                       Kokkos::ValLocScalar<scalar_t, edge_offset_t>& local) {
                     scalar_t wgt = g.values(idx);
                     if (wgt >= local.val) {
@@ -704,7 +704,7 @@ class coarsen_heuristics {
                     }
                   },
                   Kokkos::MaxLoc<scalar_t, edge_offset_t, Device>(argmax));
-              Kokkos::single(Kokkos::PerTeam(thread), [=]() {
+              Kokkos::single(Kokkos::PerTeam(thread), [&]() {
                 ordinal_t h = g.graph.entries(argmax.loc);
                 hn(i)       = h;
               });
@@ -1010,11 +1010,11 @@ class coarsen_heuristics {
                 Kokkos::parallel_reduce(
                     Kokkos::TeamThreadRange(thread, g.graph.row_map(u),
                                             g.graph.row_map(u + 1)),
-                    [=](const edge_offset_t j, uint32_t& thread_sum) {
+                    [&](const edge_offset_t j, uint32_t& thread_sum) {
                       thread_sum += hasher(g.graph.entries(j));
                     },
                     hash);
-                Kokkos::single(Kokkos::PerTeam(thread), [=]() {
+                Kokkos::single(Kokkos::PerTeam(thread), [&]() {
                   ordinal_t idx = Kokkos::atomic_fetch_add(&unmappedIdx(), 1);
                   unmappedVtx(idx) = u;
                   hashes(idx)      = hash;

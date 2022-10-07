@@ -61,6 +61,11 @@
 #include "KokkosKernels_default_types.hpp"
 #include "KokkosKernels_Macros.hpp"
 
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+#include "KokkosSparse_Utils_rocsparse.hpp"
+#include <memory>
+#endif
+
 namespace KokkosSparse {
 //! String that tells sparse kernels to use the transpose of the matrix.
 static char KOKKOSKERNELS_UNUSED_ATTRIBUTE Transpose[] = "T";
@@ -443,6 +448,11 @@ class CrsMatrix {
   cusparseMatDescr_t cusparse_descr;
 #endif  // KOKKOS_USE_CUSPARSE
 
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+  // Used for storing rocsparse descriptors for SpMV operations
+  std::shared_ptr<rocsparseSpMatrixDescriptor> rocsparse_descr;
+#endif // KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+
   /// \name Storage of the actual sparsity structure and values.
   ///
   /// CrsMatrix uses the compressed sparse row (CSR) storage format to
@@ -497,6 +507,10 @@ class CrsMatrix {
         cusparse_handle(B.cusparse_handle),
         cusparse_descr(B.cusparse_descr)
 #endif  // KOKKOS_USE_CUSPARSE
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+        ,
+        rocsparse_descr(B.rocsparse_descr)
+#endif // KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
   {
     graph.row_block_offsets = B.graph.row_block_offsets;
     // TODO: MD 07/2017: Changed the copy constructor of graph
@@ -528,6 +542,10 @@ class CrsMatrix {
     cusparseCreate(&cusparse_handle);
     cusparseCreateMatDescr(&cusparse_descr);
 #endif  // KOKKOS_USE_CUSPARSE
+
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+    setupRocsparseDescriptor();
+#endif // KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
   }
 
   /// \brief Construct with a graph that will be shared.
@@ -565,6 +583,10 @@ class CrsMatrix {
     cusparseCreate(&cusparse_handle);
     cusparseCreateMatDescr(&cusparse_descr);
 #endif  // KOKKOS_USE_CUSPARSE
+
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+    setupRocsparseDescriptor();
+#endif // KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
   }
 
   /// \brief Constructor that accepts a a static graph, and values.
@@ -591,6 +613,10 @@ class CrsMatrix {
     cusparseCreate(&cusparse_handle);
     cusparseCreateMatDescr(&cusparse_descr);
 #endif  // KOKKOS_USE_CUSPARSE
+
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+    setupRocsparseDescriptor();
+#endif // KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
   }
 
   /// \brief Constructor that copies raw arrays of host data in
@@ -668,6 +694,10 @@ class CrsMatrix {
     // for other TPLs like MKL.
     cusparseCreateMatDescr(&cusparse_descr);
 #endif  // KOKKOS_USE_CUSPARSE
+
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+    setupRocsparseDescriptor();
+#endif
   }
 
   /// \brief Constructor that accepts a row map, column indices, and
@@ -713,7 +743,25 @@ class CrsMatrix {
     cusparseCreate(&cusparse_handle);
     cusparseCreateMatDescr(&cusparse_descr);
 #endif  // KOKKOS_USE_CUSPARSE
+
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+    setupRocsparseDescriptor();
+#endif
   }
+
+#ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
+  /// \brief Create a rocsparse descriptor for this matrix
+  ///
+  /// This descriptor is used to accelerate re-used SpMV operations via rocsparse.
+  ///
+  void setupRocsparseDescriptor()
+  {
+    if(std::is_same<memory_space, Kokkos::Experimental::HIPSpace>::value){
+      rocsparse_descr = std::make_shared<rocsparseSpMatrixDescriptor>();
+      rocsparse_descr->setup(numRows(), numCols(), values, graph.row_map, graph.entries);
+    }
+  }
+#endif
 
   KOKKOS_INLINE_FUNCTION
   OrdinalType sumIntoValues(const OrdinalType rowi, const OrdinalType cols[],

@@ -7,7 +7,6 @@
 #include <gtest/gtest.h>
 #include <Kokkos_Core.hpp>
 #include "KokkosBlas_tpl_spec.hpp"
-#include <rocblas.h>
 
 // Just check if we can build against
 // rocblas and get the library version

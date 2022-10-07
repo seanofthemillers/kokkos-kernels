@@ -62,7 +62,7 @@
 #endif
 
 #ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
-#include "rocsparse.h"
+#include "KokkosSparse_Utils_rocsparse.hpp"
 #endif
 
 namespace KokkosKernels {
@@ -136,7 +136,7 @@ class Controls {
 
 #ifdef KOKKOSKERNELS_ENABLE_TPL_ROCSPARSE
   mutable rocsparse_handle rocsparseHandle = 0;
-
+  
   rocsparse_handle getRocsparseHandle() const {
     if (rocsparseHandle == 0) {
       KokkosKernels::Impl::RocsparseSingleton& s =
